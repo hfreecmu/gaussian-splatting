@@ -22,15 +22,17 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0]):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], pcd_path=None,
+                 max_train_images=None):
         """b
         :param path: Path to colmap scene main folder.
         """
-        self.model_path = args.model_path
+        if pcd_path is None:
+            self.model_path = args.model_path
         self.loaded_iter = None
         self.gaussians = gaussians
 
-        if load_iteration:
+        if load_iteration and pcd_path is None:
             if load_iteration == -1:
                 self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
             else:
@@ -41,14 +43,16 @@ class Scene:
         self.test_cameras = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.eval)
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.object_masks, args.eval, max_train_images)
+        elif os.path.exists(os.path.join(args.source_path, "cam_K.txt")):
+            scene_info = sceneLoadTypeCallbacks["BundleSdf"](args.source_path, args.images, args.object_masks, args.eval, max_train_images)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):
             print("Found transforms_train.json file, assuming Blender data set!")
             scene_info = sceneLoadTypeCallbacks["Blender"](args.source_path, args.white_background, args.eval)
         else:
             assert False, "Could not recognize scene type!"
 
-        if not self.loaded_iter:
+        if not self.loaded_iter and not pcd_path:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())
             json_cams = []
@@ -74,11 +78,21 @@ class Scene:
             print("Loading Test Cameras")
             self.test_cameras[resolution_scale] = cameraList_from_camInfos(scene_info.test_cameras, resolution_scale, args)
 
-        if self.loaded_iter:
-            self.gaussians.load_ply(os.path.join(self.model_path,
-                                                           "point_cloud",
-                                                           "iteration_" + str(self.loaded_iter),
-                                                           "point_cloud.ply"))
+        if pcd_path is not None:
+            self.gaussians.load_ply(pcd_path)
+        elif self.loaded_iter:
+            if pcd_path is None:
+                self.gaussians.load_ply(os.path.join(self.model_path,
+                                                            "point_cloud",
+                                                            "iteration_" + str(self.loaded_iter),
+                                                            "point_cloud.ply"))
+            else:
+                # self.gaussians.load_ply_trim(os.path.join(self.model_path,
+                #                                             "point_cloud",
+                #                                             "iteration_" + str(self.loaded_iter),
+                #                                             "point_cloud.ply"),
+                #                                             pcd_path)
+                raise RuntimeError('should not happen')
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, self.cameras_extent)
 

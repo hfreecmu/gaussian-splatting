@@ -50,6 +50,7 @@ class ModelParams(ParamGroup):
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
+        self.object_masks = "object_masks"
         self._resolution = -1
         self._white_background = False
         self.data_device = "cuda"
@@ -107,6 +108,6 @@ def get_combined_args(parser : ArgumentParser):
 
     merged_dict = vars(args_cfgfile).copy()
     for k,v in vars(args_cmdline).items():
-        if v != None:
+        if v != None or k == 'pcd_path':
             merged_dict[k] = v
     return Namespace(**merged_dict)
