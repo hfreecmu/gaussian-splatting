@@ -92,9 +92,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # Loss
         gt_image = viewpoint_cam.original_image.cuda()
-        gt_object_mask = viewpoint_cam.object_mask.cuda()
+        # gt_object_mask = viewpoint_cam.object_mask.cuda()
 
-        gt_image = gt_image*gt_object_mask
+        # gt_image = gt_image*gt_object_mask
 
         #gt_image = gt_image*(1.0 - gt_object_mask)
         #image = image*(1.0 - gt_object_mask)
@@ -183,8 +183,8 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 for idx, viewpoint in enumerate(config['cameras']):
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    gt_object_mask = torch.clamp(viewpoint.object_mask.to("cuda"), 0.0, 1.0)
-                    gt_image = gt_image * gt_object_mask
+                    # gt_object_mask = torch.clamp(viewpoint.object_mask.to("cuda"), 0.0, 1.0)
+                    # gt_image = gt_image * gt_object_mask
                     #gt_image = gt_image * (1.0 - gt_object_mask)
                     if tb_writer and (idx < 5):
                         tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)

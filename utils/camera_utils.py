@@ -80,6 +80,8 @@ def camera_to_JSON(id, camera : Camera):
         'position': pos.tolist(),
         'rotation': serializable_array_2d,
         'fy' : fov2focal(camera.FovY, camera.height),
-        'fx' : fov2focal(camera.FovX, camera.width)
+        'fx' : fov2focal(camera.FovX, camera.width),
+        'cx': camera.cx / 2 * camera.width + camera.width / 2,
+        'cy': camera.cy / 2 * camera.height + camera.height / 2
     }
     return camera_entry
