@@ -36,6 +36,7 @@ class CameraInfo(NamedTuple):
     cy: np.array
     image: np.array
     object_mask: np.array
+    human_mask: np.array
     image_path: str
     image_name: str
     width: int
@@ -71,7 +72,8 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, object_masks_folder, max_train_images):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, 
+                      object_masks_folder, human_masks_folder, max_train_images):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -108,18 +110,23 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, object_mask
         cy = (cy - height / 2) / height * 2
 
         image_path = os.path.join(images_folder, os.path.basename(extr.name))
-        object_mask_path = os.path.join(object_masks_folder, os.path.basename(extr.name).replace('.jpg', '.npy'))
-
         image_name = os.path.basename(image_path).split(".")[0]
-
         image = copy.deepcopy(Image.open(image_path))
-        if os.path.exists(object_mask_path):
-            object_mask = np.load(object_mask_path)
+
+        obj_mask_path = os.path.join(object_masks_folder, image_name + '.png')
+        if os.path.exists(obj_mask_path):
+            object_mask = copy.deepcopy(Image.open(obj_mask_path))
         else:
             object_mask = None
 
+        human_mask_path = os.path.join(human_masks_folder, image_name + '.png')
+        if os.path.exists(human_mask_path):
+            human_mask = copy.deepcopy(Image.open(human_mask_path))
+        else:
+            human_mask = None
+
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, cx=cx, cy=cy,
-                              image=image, object_mask=object_mask,
+                              image=image, object_mask=object_mask, human_mask=human_mask,
                               image_path=image_path, image_name=image_name, width=width, height=height)
         cam_infos.append(cam_info)
     
@@ -181,11 +188,13 @@ def readColmapSceneInfo(path, images, object_masks, eval, llffhold=8, max_train_
     #     cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
-    object_masks_dir = 'object_masks' if object_masks == None else object_masks
+    object_masks_dir = 'mask_obj' if object_masks == None else object_masks
+    human_masks_dir = 'mask_human'
 
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
                                            images_folder=os.path.join(path, reading_dir),
                                            object_masks_folder=os.path.join(path, object_masks_dir),
+                                           human_masks_folder=os.path.join(path, human_masks_dir),
                                            max_train_images=max_train_images)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 

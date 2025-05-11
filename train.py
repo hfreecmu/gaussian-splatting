@@ -29,6 +29,7 @@ except ImportError:
     TENSORBOARD_FOUND = False
 
 import numpy as np
+from gaussian_alpha_renderer import render as alpha_render
 
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
@@ -87,20 +88,38 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
-        render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        is_mask = False
+        gt_image = viewpoint_cam.original_image.cuda()
+        if viewpoint_cam.object_mask is not None:
+            gt_object_mask = viewpoint_cam.object_mask.cuda()
+            gt_image = torch.where(gt_object_mask > 0, gt_image, torch.zeros_like(gt_image))
+            is_mask = True
+        
+        if viewpoint_cam.human_mask is not None:
+            gt_human_mask = viewpoint_cam.human_mask.cuda()
+            valid_pix = 1 - gt_human_mask
+        else:
+            valid_pix = torch.ones_like(gt_image)
+
+        if not is_mask:
+            render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
+        else:
+            render_pkg = alpha_render(viewpoint_cam, gaussians, pipe, bg)
+
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
         # Loss
-        gt_image = viewpoint_cam.original_image.cuda()
-        # gt_object_mask = viewpoint_cam.object_mask.cuda()
-
-        # gt_image = gt_image*gt_object_mask
-
-        #gt_image = gt_image*(1.0 - gt_object_mask)
-        #image = image*(1.0 - gt_object_mask)
+        image = torch.where(valid_pix > 0, image, torch.zeros_like(gt_image))
+        gt_image = torch.where(valid_pix > 0, gt_image, torch.zeros_like(gt_image))
 
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+
+        if is_mask:
+            rend_mask = torch.where(valid_pix > 0, render_pkg['alpha'], torch.zeros_like(render_pkg['alpha']))
+            gt_mask = torch.where(valid_pix > 0, gt_object_mask, torch.zeros_like(gt_object_mask))
+            loss += l1_loss(rend_mask, gt_mask)
+
         loss.backward()
 
         iter_end.record()
@@ -183,17 +202,18 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                 for idx, viewpoint in enumerate(config['cameras']):
                     image = torch.clamp(renderFunc(viewpoint, scene.gaussians, *renderArgs)["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                    # gt_object_mask = torch.clamp(viewpoint.object_mask.to("cuda"), 0.0, 1.0)
-                    # gt_image = gt_image * gt_object_mask
-                    #gt_image = gt_image * (1.0 - gt_object_mask)
+                    
+                    if viewpoint.object_mask is not None:
+                        gt_object_mask = torch.clamp(viewpoint.object_mask.to("cuda"), 0.0, 1.0)
+                        gt_image = gt_image * gt_object_mask
+                        image = image * gt_object_mask
+
                     if tb_writer and (idx < 5):
                         tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
                         if iteration == testing_iterations[0]:
                             tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
                     l1_test += l1_loss(image, gt_image).mean().double()
                     psnr_test += psnr(image, gt_image).mean().double()
-                    #l1_test += l1_loss(image*(1-gt_object_mask), gt_image).mean().double()
-                    #psnr_test += psnr(image*(1-gt_object_mask), gt_image).mean().double()
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])          
                 print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
