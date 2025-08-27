@@ -90,6 +90,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         is_mask = False
         gt_image = viewpoint_cam.original_image.cuda()
+        
         if viewpoint_cam.object_mask is not None:
             gt_object_mask = viewpoint_cam.object_mask.cuda()
             gt_image = torch.where(gt_object_mask > 0, gt_image, torch.zeros_like(gt_image))

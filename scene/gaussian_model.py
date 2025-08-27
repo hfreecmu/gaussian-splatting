@@ -43,13 +43,15 @@ class GaussianModel:
 
         self.rotation_activation = torch.nn.functional.normalize
 
-    def disable_grad(self):
+    def disable_grad(self, full=True):
         self._xyz.requires_grad_(False)
         self._scaling.requires_grad_(False)
         self._rotation.requires_grad_(False)
-        self._features_dc.requires_grad_(False)
-        self._features_rest.requires_grad_(False)
-        self._opacity.requires_grad_(False)
+
+        if full:
+            self._features_dc.requires_grad_(False)
+            self._features_rest.requires_grad_(False)
+            self._opacity.requires_grad_(False)
 
     def __init__(self, sh_degree : int):
         self.active_sh_degree = 0

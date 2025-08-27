@@ -253,6 +253,7 @@ def readColmapSceneInfo(path, images, object_masks, eval, llffhold=8, max_train_
     return scene_info
 
 def readBundleCameras(extrinsics_dir, K_path, images_dir, masks_dir):
+    raise RuntimeError('not used?')
     intr = np.loadtxt(K_path)
     uid = 0
     cam_infos = []
@@ -299,6 +300,7 @@ def readBundleCameras(extrinsics_dir, K_path, images_dir, masks_dir):
 
 def readBundleSceneInfo(path, images_dep, object_masks_dep, eval_dep, llffhold_dep=8, 
                         max_train_images_dep=None):
+    raise RuntimeError('not used?')
     extrinsics_dir = os.path.join(path, 'ob_in_cam')
     masks_dir = os.path.join(path, 'masks')
     images_dir = os.path.join(path, 'images')
@@ -413,6 +415,6 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png"):
 
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo,
-    "BundleSdf": readBundleSceneInfo,
+    #"BundleSdf": readBundleSceneInfo,
     "Blender" : readNerfSyntheticInfo
 }
