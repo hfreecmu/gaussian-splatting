@@ -88,11 +88,13 @@ def gaussian_decomp(gaussians, viewpoint_camera, input_mask, indices_mask):
 
     return decomp_gaussians
 
-def segment(dataset, iteration, pipeline, output_dir, sor_filter):
+def segment(dataset, iteration, pipeline, output_dir, sor_filter, do_something):
     gaussians = GaussianModel(dataset.sh_degree)
     scene = Scene(dataset, gaussians, load_iteration=iteration, shuffle=False)
-    gaussians.save_ply(os.path.join(output_dir, "mask.ply"))
-    return
+
+    if not do_something:
+        gaussians.save_ply(os.path.join(output_dir, "mask.ply"))
+        return
 
     xyz = gaussians.get_xyz
     cameras = scene.getTrainCameras()
@@ -172,6 +174,7 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument('--output_dir', required=True)
     parser.add_argument('--sor_filter', action='store_true')
+    parser.add_argument('--do_something', action='store_true')
     args = get_combined_args(parser)
     print("Rendering " + args.model_path)
 
@@ -180,4 +183,4 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         segment(model.extract(args), args.iteration, pipeline.extract(args),
-                args.output_dir, args.sor_filter)
+                args.output_dir, args.sor_filter, args.do_something)

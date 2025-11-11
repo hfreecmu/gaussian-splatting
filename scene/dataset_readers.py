@@ -37,6 +37,7 @@ class CameraInfo(NamedTuple):
     image: np.array
     object_mask: np.array
     human_mask: np.array
+    inv_depth: np.array
     image_path: str
     image_name: str
     width: int
@@ -73,8 +74,11 @@ def getNerfppNorm(cam_info):
     return {"translate": translate, "radius": radius}
 
 def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder, 
-                      object_masks_folder, human_masks_folder, max_train_images):
+                      object_masks_folder, human_masks_folder, inv_depths_folder,
+                      max_train_images,
+                      ):
     cam_infos = []
+    # print('HARRY WARNING YOU ARE RESTRICTING DEMOS')
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
         # the exact output you're looking for:
@@ -103,30 +107,51 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, images_folder,
             FovX = focal2fov(focal_length_x, width)
             cx = intr.params[2]
             cy = intr.params[3]
+        elif intr.model=="OPENCV":
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
+            cx = intr.params[2]
+            cy = intr.params[3]
         else:
             assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
 
         cx = (cx - width / 2) / width * 2
         cy = (cy - height / 2) / height * 2
 
-        image_path = os.path.join(images_folder, os.path.basename(extr.name))
+        # image_path = os.path.join(images_folder, os.path.basename(extr.name))
+        image_path = os.path.join(images_folder, extr.name)
+        # if not 'demo' in image_path:
+        #     continue
         image_name = os.path.basename(image_path).split(".")[0]
         image = copy.deepcopy(Image.open(image_path))
 
-        obj_mask_path = os.path.join(object_masks_folder, image_name + '.png')
-        if os.path.exists(obj_mask_path):
-            object_mask = copy.deepcopy(Image.open(obj_mask_path))
-        else:
-            object_mask = None
+        object_mask = None
+        if object_masks_folder != '':
+            obj_mask_path = os.path.join(object_masks_folder, image_name + '.png')
+            if os.path.exists(obj_mask_path):
+                object_mask = copy.deepcopy(Image.open(obj_mask_path))
 
-        human_mask_path = os.path.join(human_masks_folder, image_name + '.png')
-        if os.path.exists(human_mask_path):
-            human_mask = copy.deepcopy(Image.open(human_mask_path))
-        else:
-            human_mask = None
+        human_mask = None
+        if human_masks_folder != '':
+            human_mask_path = os.path.join(human_masks_folder, image_name + '.png')
+            if os.path.exists(human_mask_path):
+                human_mask = copy.deepcopy(Image.open(human_mask_path))
+                human_mask = np.array(human_mask)
+                human_mask[human_mask > 0] = 255
+                human_mask = Image.fromarray(human_mask)
+
+        # not support inv depth right now
+        inv_depth = None
+        # if inv_depths_folder != '':
+        #     inv_depth_path = os.path.join(inv_depths_folder, image_name + '.npy')
+        #     if os.path.exists(inv_depth_path):
+        #         inv_depth = np.load(inv_depth_path).astype(np.float32)
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, cx=cx, cy=cy,
-                              image=image, object_mask=object_mask, human_mask=human_mask,
+                              image=image, 
+                              object_mask=object_mask, human_mask=human_mask, inv_depth=inv_depth,
                               image_path=image_path, image_name=image_name, width=width, height=height)
         cam_infos.append(cam_info)
     
@@ -165,7 +190,8 @@ def storePly(path, xyz, rgb):
 
 # changing to 16 for now
 # back to 8
-def readColmapSceneInfo(path, images, object_masks, eval, llffhold=8, max_train_images=None):
+def readColmapSceneInfo(path, images, object_masks, human_masks, inv_depths,
+                        eval, llffhold=8, max_train_images=None):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -188,14 +214,20 @@ def readColmapSceneInfo(path, images, object_masks, eval, llffhold=8, max_train_
     #     cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
     reading_dir = "images" if images == None else images
-    object_masks_dir = 'mask_obj' if object_masks == None else object_masks
-    human_masks_dir = 'mask_human'
-
+    
+    # object_masks_dir = 'mask_obj' if object_masks == None else object_masks
+    # human_masks_dir = 'mask_human' if human_masks == None else human_masks
+    # inv_depths_dir = 'inv_depth' if inv_depths == None else inv_depths
     cam_infos_unsorted = readColmapCameras(cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, 
                                            images_folder=os.path.join(path, reading_dir),
-                                           object_masks_folder=os.path.join(path, object_masks_dir),
-                                           human_masks_folder=os.path.join(path, human_masks_dir),
-                                           max_train_images=max_train_images)
+                                        #    object_masks_folder=os.path.join(path, object_masks_dir),
+                                        #    human_masks_folder=os.path.join(path, human_masks_dir),
+                                        #    inv_depths_folder = os.path.join(path, inv_depths_dir),
+                                           object_masks_folder=object_masks,
+                                           human_masks_folder=human_masks,
+                                           inv_depths_folder=inv_depths,
+                                           max_train_images=max_train_images,
+                                           )
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     if eval:

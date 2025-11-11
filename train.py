@@ -31,6 +31,9 @@ except ImportError:
 import numpy as np
 from gaussian_alpha_renderer import render as alpha_render
 
+from gsplat.rendering import rasterization
+from utils.graphics_utils import fov2focal, c2c_orig
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
@@ -89,6 +92,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         bg = torch.rand((3), device="cuda") if opt.random_background else background
 
         is_mask = False
+        is_inv_depth = False
         gt_image = viewpoint_cam.original_image.cuda()
         
         if viewpoint_cam.object_mask is not None:
@@ -101,6 +105,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             valid_pix = 1 - gt_human_mask
         else:
             valid_pix = torch.ones_like(gt_image)
+
+        if viewpoint_cam.inv_depth is not None:
+            gt_inv_depth = viewpoint_cam.inv_depth.cuda()
+            is_inv_depth = True
 
         if not is_mask:
             render_pkg = render(viewpoint_cam, gaussians, pipe, bg)
@@ -121,6 +129,63 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             gt_mask = torch.where(valid_pix > 0, gt_object_mask, torch.zeros_like(gt_object_mask))
             loss += l1_loss(rend_mask, gt_mask)
 
+        if is_inv_depth and iteration > 3000:
+            fov_x = viewpoint_cam.FoVx
+            fov_y = viewpoint_cam.FoVy
+            cx = viewpoint_cam.cx
+            cy = viewpoint_cam.cy
+
+            width = viewpoint_cam.image_width
+            height = viewpoint_cam.image_height
+
+            fx = fov2focal(fov_x, width)
+            fy = fov2focal(fov_y, height)
+            cx = c2c_orig(cx, width)
+            cy = c2c_orig(cy, height)
+
+            K = np.array([[fx, 0, cx],
+                          [0, fy, cy],
+                          [0, 0, 1.0]])
+            K = torch.FloatTensor(K).cuda()
+
+            viewmat = viewpoint_cam.world_view_transform.T
+
+            render_colors, _, _ = rasterization(
+                means=gaussians.get_xyz,
+                quats=gaussians.get_rotation,
+                scales=gaussians.get_scaling,
+                opacities=gaussians.get_opacity[:, 0],
+                colors=gaussians.get_features,
+                viewmats=viewmat.unsqueeze(0),
+                Ks=K.unsqueeze(0),
+                width=width,
+                height=height,
+                render_mode="ED",
+                sh_degree=dataset.sh_degree,
+            )
+
+            depth = render_colors.squeeze(0).permute(2, 0, 1)
+            disparity = torch.where(depth > 0, 1 / depth, torch.zeros_like(depth))
+
+            min_disparity = disparity.min().detach()
+            max_disparity = disparity.max().detach()
+
+            norm_disparity = (disparity - min_disparity) / (max_disparity - min_disparity)
+
+            med_val = norm_disparity.median().detach()
+            scale_val = torch.abs(norm_disparity - med_val).mean().detach()
+            shifted_pred = (norm_disparity - med_val) / scale_val
+            shifted_pred = torch.where(valid_pix > 0, shifted_pred, torch.zeros_like(shifted_pred))
+
+            med_gt = gt_inv_depth[valid_pix > 0].median()
+            scale_gt = torch.abs(gt_inv_depth[valid_pix > 0] - med_gt).mean()
+            shifted_gt = (gt_inv_depth - med_gt) / scale_gt
+            shifted_gt = torch.where(valid_pix > 0, shifted_gt, torch.zeros_like(shifted_gt))
+
+            raise RuntimeError('not right here')
+            depth_loss = l1_loss(image, gt_image)
+            loss += depth_loss
+        
         loss.backward()
 
         iter_end.record()

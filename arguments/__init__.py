@@ -50,7 +50,12 @@ class ModelParams(ParamGroup):
         self._source_path = ""
         self._model_path = ""
         self._images = "images"
-        self.object_masks = "mask_obj"
+        # self.object_masks = "mask_obj"
+        # self.human_masks = "mask_human"
+        # self.inv_depths = "inv_depth"
+        self.object_masks = ""
+        self.human_masks = ""
+        self.inv_depths = ""
         self._resolution = -1
         self._white_background = False
         self.data_device = "cuda"

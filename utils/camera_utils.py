@@ -11,8 +11,9 @@
 
 from scene.cameras import Camera
 import numpy as np
-from utils.general_utils import PILtoTorch, MasktoTorch
+from utils.general_utils import PILtoTorch, NPtoTorch
 from utils.graphics_utils import fov2focal
+import cv2
 
 WARNED = False
 
@@ -41,7 +42,8 @@ def loadCam(args, id, cam_info, resolution_scale):
     resized_image_rgb = PILtoTorch(cam_info.image, resolution)
     resized_object_mask = PILtoTorch(cam_info.object_mask, resolution)
     resized_human_mask = PILtoTorch(cam_info.human_mask, resolution)
-
+    resized_inv_depth = NPtoTorch(cam_info.inv_depth, resolution, interpolation_mode=cv2.INTER_NEAREST)
+    
     gt_image = resized_image_rgb[:3, ...]
     loaded_mask = None
 
@@ -54,7 +56,8 @@ def loadCam(args, id, cam_info, resolution_scale):
                   image=gt_image, gt_alpha_mask=loaded_mask,
                   image_name=cam_info.image_name, uid=id, data_device=args.data_device,
                   object_mask=resized_object_mask,
-                  human_mask=resized_human_mask)
+                  human_mask=resized_human_mask,
+                  inv_depth=resized_inv_depth)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []

@@ -43,7 +43,9 @@ class Scene:
         self.test_cameras = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.object_masks, args.eval, max_train_images)
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, 
+                                                          args.object_masks, args.human_masks, args.inv_depths,
+                                                          args.eval, max_train_images)
         elif os.path.exists(os.path.join(args.source_path, "cam_K.txt")):
             scene_info = sceneLoadTypeCallbacks["BundleSdf"](args.source_path, args.images, args.object_masks, args.eval, max_train_images)
         elif os.path.exists(os.path.join(args.source_path, "transforms_train.json")):

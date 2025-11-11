@@ -157,14 +157,17 @@ def rotate_splat(model, scipy_rot):
     model._rotation = rotated_rotations
     model._features_rest = wigner_D_rotated_extra_shs.cuda()
 
-def rotate_splat_cuda(model, rotation_matrix, harmonic=True):   
+def rotate_splat_cuda(model, rotation_matrix, harmonic=True, rot_quat=None):   
     if harmonic: 
         wigner_D_rotated_extra_shs = transform_shs(model.get_features[:, 1:, :].clone(), rotation_matrix)
 
     #wigner_D_rotated_shs = model.get_features.clone().cpu()
     #wigner_D_rotated_shs[:, 1:, :] = wigner_D_rotated_extra_shs
 
-    rotation_quat = pytorch3d.transforms.matrix_to_quaternion(rotation_matrix)
+    if rot_quat is None:
+        rotation_quat = pytorch3d.transforms.matrix_to_quaternion(rotation_matrix)
+    else:
+        rotation_quat = rot_quat
 
     rotated_xyz = model.get_xyz @ rotation_matrix.T
     rotated_rotations = torch.nn.functional.normalize(GaussianTransformUtils.quat_multiply(

@@ -15,6 +15,7 @@ from datetime import datetime
 import numpy as np
 import random
 from PIL import Image
+import cv2
 
 def inverse_sigmoid(x):
     return torch.log(x/(1-x))
@@ -30,34 +31,45 @@ def PILtoTorch(pil_image, resolution):
     else:
         return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
 
-import cv2
-def MasktoTorch(mask, resolution):
-    if mask is None:
+def NPtoTorch(np_image, resolution, interpolation_mode):
+    if np_image is None:
         return None
     
-    if resolution[0] != mask.shape[1] or resolution[1] != mask.shape[0]:
-        # raise RuntimeError('mask requires res of 1 for now')
-        pil_mask = Image.fromarray((mask * 255).astype('uint8'))
-        resized_pil_mask = pil_mask.resize(resolution)
-        mask = np.array(resized_pil_mask) / 255.0
+    resized_image_np = cv2.resize(np_image, resolution, interpolation=interpolation_mode)
+    resized_image = torch.from_numpy(resized_image_np)
+    if len(resized_image.shape) == 3:
+        return resized_image.permute(2, 0, 1)
+    else:
+        return resized_image.unsqueeze(dim=-1).permute(2, 0, 1)
 
-        raise RuntimeError('should I use nearest?')
+
+# def MasktoTorch(mask, resolution):
+#     if mask is None:
+#         return None
     
-    # kernel = np.ones((5, 5))
-    # mask_dilation = cv2.dilate(mask, kernel, iterations=2)
-    #kernel = np.ones((3, 3))
-    #mask_dilation = cv2.dilate(mask, kernel, iterations=1)
+#     if resolution[0] != mask.shape[1] or resolution[1] != mask.shape[0]:
+#         # raise RuntimeError('mask requires res of 1 for now')
+#         pil_mask = Image.fromarray((mask * 255).astype('uint8'))
+#         resized_pil_mask = pil_mask.resize(resolution)
+#         mask = np.array(resized_pil_mask) / 255.0
+
+#         raise RuntimeError('should I use nearest?')
+    
+#     # kernel = np.ones((5, 5))
+#     # mask_dilation = cv2.dilate(mask, kernel, iterations=2)
+#     #kernel = np.ones((3, 3))
+#     #mask_dilation = cv2.dilate(mask, kernel, iterations=1)
     
 
-    #mask_blur = cv2.blur(mask, (7, 7))
+#     #mask_blur = cv2.blur(mask, (7, 7))
 
-    #mask_erosion = cv2.erode(mask, kernel, iterations=2)
+#     #mask_erosion = cv2.erode(mask, kernel, iterations=2)
 
-    resized_mask = torch.from_numpy(mask).unsqueeze(0).float()
-    #resized_mask = torch.from_numpy(mask_blur).unsqueeze(0).float()
-    #resized_mask = torch.from_numpy(mask_dilation).unsqueeze(0).float()
-    #resized_mask = torch.from_numpy(mask_erosion).unsqueeze(0).float()
-    return resized_mask
+#     resized_mask = torch.from_numpy(mask).unsqueeze(0).float()
+#     #resized_mask = torch.from_numpy(mask_blur).unsqueeze(0).float()
+#     #resized_mask = torch.from_numpy(mask_dilation).unsqueeze(0).float()
+#     #resized_mask = torch.from_numpy(mask_erosion).unsqueeze(0).float()
+#     return resized_mask
 
 def get_expon_lr_func(
     lr_init, lr_final, lr_delay_steps=0, lr_delay_mult=1.0, max_steps=1000000
