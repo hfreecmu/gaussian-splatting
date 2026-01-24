@@ -67,11 +67,14 @@ import pytorch3d.transforms
 
 #     return shs_feat
 
-def transform_shs(shs_feat, rotation_matrix):
+def transform_shs(shs_feat, rotation_matrix, use_p3d=False):
     P = torch.tensor([[0, 0, 1], [1, 0, 0], [0, 1, 0]],dtype=torch.float32,device=rotation_matrix.device) 
     permuted_rotation_matrix = torch.linalg.inv(P) @ rotation_matrix @ P
-    rotation_angles = o3._rotation.matrix_to_angles(permuted_rotation_matrix)
-    #rotation_angles = pytorch3d.transforms.matrix_to_euler_angles(permuted_rotation_matrix,'YXY')
+    
+    if not use_p3d:
+        rotation_angles = o3._rotation.matrix_to_angles(permuted_rotation_matrix)
+    else:
+        rotation_angles = pytorch3d.transforms.matrix_to_euler_angles(permuted_rotation_matrix,'YXY')
 
     return transform_shs_euler(shs_feat, rotation_angles)
 
@@ -157,9 +160,16 @@ def rotate_splat(model, scipy_rot):
     model._rotation = rotated_rotations
     model._features_rest = wigner_D_rotated_extra_shs.cuda()
 
-def rotate_splat_cuda(model, rotation_matrix, harmonic=True, rot_quat=None):   
+def rotate_splat_cuda(model, rotation_matrix, harmonic=True, rot_quat=None, use_p3d=False, 
+                      detach_harmonic=False):   
     if harmonic: 
-        wigner_D_rotated_extra_shs = transform_shs(model.get_features[:, 1:, :].clone(), rotation_matrix)
+        if not detach_harmonic:
+            wigner_D_rotated_extra_shs = transform_shs(model.get_features[:, 1:, :].clone(), rotation_matrix,
+                                                    use_p3d=use_p3d)
+        else:
+            with torch.no_grad():
+                wigner_D_rotated_extra_shs = transform_shs(model.get_features[:, 1:, :].clone(), rotation_matrix,
+                                                   use_p3d=use_p3d)
 
     #wigner_D_rotated_shs = model.get_features.clone().cpu()
     #wigner_D_rotated_shs[:, 1:, :] = wigner_D_rotated_extra_shs
