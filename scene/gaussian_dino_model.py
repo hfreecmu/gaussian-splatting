@@ -24,7 +24,10 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 import open3d
 from scipy.spatial import KDTree
 
-class GaussianModel:
+GAUSSIAN_DINO_DIM = 64
+DINO_DIM = 96
+
+class GaussianDinoModel:
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -53,6 +56,10 @@ class GaussianModel:
             self._features_rest.requires_grad_(False)
             self._opacity.requires_grad_(False)
 
+            self._dino_feats.requires_grad_(False)
+            for p in self.dino_nn.parameters():
+                p.requires_grad_(False)
+
     def __init__(self, sh_degree : int):
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
@@ -62,6 +69,7 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
+        self._dino_feats = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
@@ -69,6 +77,16 @@ class GaussianModel:
         self.percent_dense = 0
         self.spatial_lr_scale = 0
         self.setup_functions()
+
+        self.dino_nn = torch.nn.Sequential(
+            torch.nn.Linear(GAUSSIAN_DINO_DIM, 64, bias = False),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 64, bias = False),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 64, bias = False),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, DINO_DIM, bias = False)
+        ).cuda()
 
     def capture(self):
         return (
@@ -79,6 +97,7 @@ class GaussianModel:
             self._scaling,
             self._rotation,
             self._opacity,
+            self._dino_feats,
             self.max_radii2D,
             self.xyz_gradient_accum,
             self.denom,
@@ -94,6 +113,7 @@ class GaussianModel:
         self._scaling, 
         self._rotation, 
         self._opacity,
+        self._dino_feats,
         self.max_radii2D, 
         xyz_gradient_accum, 
         denom,
@@ -125,6 +145,10 @@ class GaussianModel:
     @property
     def get_opacity(self):
         return self.opacity_activation(self._opacity)
+    
+    @property
+    def get_dino_feats(self):
+        return self._dino_feats
     
     def get_covariance(self, scaling_modifier = 1):
         return self.covariance_activation(self.get_scaling, scaling_modifier, self._rotation)
@@ -158,6 +182,8 @@ class GaussianModel:
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
+        self._dino_feats = nn.Parameter(torch.randn((self._xyz.shape[0], GAUSSIAN_DINO_DIM)).cuda())
+
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -169,7 +195,9 @@ class GaussianModel:
             {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"}
+            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
+
+            {'params': [self._dino_feats], 'lr': 1e-3, "name": "dino_feats"},
         ]
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
@@ -219,6 +247,19 @@ class GaussianModel:
         el = PlyElement.describe(elements, 'vertex')
         PlyData([el]).write(path)
 
+        attrs = self.__dict__
+        additional_attrs = [
+            '_dino_feats',
+            'dino_nn',
+        ]
+
+        save_dict = {}
+        for attr_name in additional_attrs:
+            save_dict[attr_name] = attrs[attr_name]
+
+        path_model = path.replace('point_cloud.ply', 'model_params.pt')
+        torch.save(save_dict, path_model)
+
     def reset_opacity(self):
         opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
@@ -267,7 +308,17 @@ class GaussianModel:
 
         self.active_sh_degree = self.max_sh_degree
 
+        path_model = path.replace('point_cloud.ply', 'model_params.pt')
+        params = torch.load(path_model)
+        dino_feats = params['_dino_feats']
+        dino_nn = params['dino_nn']
+
+        # self._dino_feats = nn.Parameter(torch.tensor(dino_feats, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._dino_feats = nn.Parameter(dino_feats)
+        self.dino_nn = dino_nn
+
     def load_ply_trim(self, path, pcd_path, filt_points=None):
+        raise RuntimeError('not supported yet')
         plydata = PlyData.read(path)
 
         if filt_points is None:
@@ -330,6 +381,8 @@ class GaussianModel:
 
         self.active_sh_degree = self.max_sh_degree
 
+        breakpoint()
+
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
@@ -373,6 +426,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        self._dino_feats = optimizable_tensors["dino_feats"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -401,13 +455,15 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation,
+                              new_dino_feats,):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
         "opacity": new_opacities,
         "scaling" : new_scaling,
-        "rotation" : new_rotation}
+        "rotation" : new_rotation,
+        'dino_feats': new_dino_feats,}
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
@@ -416,6 +472,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        self._dino_feats = optimizable_tensors["dino_feats"]
 
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -441,7 +498,10 @@ class GaussianModel:
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
+        new_dino_feats = self._dino_feats[selected_pts_mask].repeat(N, 1)
+
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation,
+                                   new_dino_feats)
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -458,8 +518,10 @@ class GaussianModel:
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
+        new_dino_feats = self._dino_feats[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation,
+                                   new_dino_feats)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size):
         grads = self.xyz_gradient_accum / self.denom

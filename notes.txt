@@ -1,0 +1,3 @@
+for dino_v2 maybe use your dino_extractor? idk
+
+check changes in gaussian_dino_model vs gaussian_model
